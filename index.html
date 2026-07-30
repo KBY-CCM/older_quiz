@@ -8,7 +8,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { background: #232323; color: #fff;
     font-family: "Noto Sans KR", "Pretendard", "Malgun Gothic", system-ui, sans-serif; }
-  body { min-height: 100vh; padding: 28px 24px 60px; }
+  body { min-height: 100vh; padding: 28px 24px 60px; zoom: 0.67; }
 
   .top { position: relative; display: flex; justify-content: center; align-items: flex-start; margin-bottom: 10px; }
   .title-pill { background: #fff; color: #111; font-size: 26px; font-weight: 800;
@@ -55,7 +55,9 @@
   .side { display: flex; flex-direction: column; }
   .imgbox { position: relative; width: 100%; aspect-ratio: 1 / 1.15; background: #141414;
     border-radius: 6px; overflow: hidden; }
-  .imgbox img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .imgbox img { width: 100%; height: 100%; object-fit: contain; display: block;
+    opacity: 0; transition: opacity .15s; }
+  .imgbox img.loaded { opacity: 1; }
   .yearlay { position: absolute; left: 0; right: 0; bottom: 26px; text-align: center;
     font-size: 42px; font-weight: 900; color: #fff;
     text-shadow: 0 0 8px rgba(0,0,0,.9), 0 2px 14px rgba(0,0,0,.9); display: none; }
@@ -115,6 +117,17 @@
     width: 24px; height: 22px; font-size: 13px; font-weight: 800; cursor: pointer; line-height: 1; }
   .fontctl button:hover { color: #ddd; border-color: #777; }
 
+  /* 시작 전 이미지 프리로딩 화면 */
+  .preload { position: fixed; inset: 0; background: #232323; z-index: 100;
+    display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 26px;
+    transition: opacity .45s; }
+  .preload.hide { opacity: 0; pointer-events: none; }
+  .preload .pl-title { background: #fff; color: #111; font-size: 30px; font-weight: 800;
+    padding: 14px 40px; border-radius: 16px; }
+  .pre-track { width: min(460px, 70vw); height: 14px; background: #3a3a3a; border-radius: 7px; overflow: hidden; }
+  .pre-bar { height: 100%; width: 0%; background: #f0c04e; border-radius: 7px; transition: width .2s; }
+  .pre-txt { font-size: 16px; color: #aaa; font-weight: 600; }
+
   /* 역대 연표 오버레이 */
   .tl-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.86); z-index: 50; }
   .tl-overlay.open { display: flex; justify-content: center; align-items: center; }
@@ -150,6 +163,12 @@
 </style>
 </head>
 <body>
+
+<div class="preload" id="preload">
+  <div class="pl-title">뭐가 더 오래 됐을까?</div>
+  <div class="pre-track"><div class="pre-bar" id="pre-bar"></div></div>
+  <div class="pre-txt" id="pre-txt">이미지 불러오는 중...</div>
+</div>
 
 <div class="top">
   <button class="btn-timeline" id="btn-timeline">📜 역대 연표 <span id="tl-count"></span></button>
@@ -284,6 +303,40 @@
     return (t || "").replace(/(기원전\s*)?\d[\d,.~]*\s*(년대|년경|년|세기경|세기|월)/g, "●●●●");
   }
 
+  // 잔상 방지: 새 이미지가 로드되기 전엔 숨김
+  function setImg(el, url) {
+    const u = encodeURI(url);
+    if (el.getAttribute("src") === u) return;
+    el.classList.remove("loaded");
+    el.onload = () => el.classList.add("loaded");
+    el.onerror = () => el.classList.add("loaded");
+    el.src = u;
+    if (el.complete && el.naturalWidth > 0) el.classList.add("loaded");
+  }
+
+  // 시작 전 전체 이미지 프리로딩
+  function preloadAll() {
+    const urls = [];
+    Q.forEach(q => { urls.push(q.a.img); urls.push(q.b.img); });
+    let done = 0, fail = 0;
+    const finish = () => {
+      $("pre-txt").textContent = fail ? "완료 (이미지 " + fail + "개 로드 실패)" : "완료!";
+      setTimeout(() => $("preload").classList.add("hide"), 400);
+    };
+    urls.forEach(u => {
+      const im = new Image();
+      im.onload = im.onerror = (e) => {
+        if (e.type === "error") fail++;
+        done++;
+        $("pre-bar").style.width = (done / urls.length * 100) + "%";
+        $("pre-txt").textContent = "이미지 불러오는 중 " + done + " / " + urls.length;
+        if (done === urls.length) finish();
+      };
+      im.src = encodeURI(u);
+    });
+  }
+  preloadAll();
+
   function render() {
     $("stat-ok").textContent = correctCount();
     $("stat-prog").textContent = progress();
@@ -301,8 +354,8 @@
     const choice = answered ? S.answers[i] : null;
     const hinted = S.hints[i];
 
-    $("img-a").src = encodeURI(s.a.img);
-    $("img-b").src = encodeURI(s.b.img);
+    setImg($("img-a"), s.a.img);
+    setImg($("img-b"), s.b.img);
     $("btn-a").textContent = s.a.name;
     $("btn-b").textContent = s.b.name;
     $("year-a").textContent = s.a.year;
